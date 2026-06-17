@@ -56,3 +56,30 @@ export async function requireAdmin() {
   if (!admin) return { error: forbidden() };
   return { userId };
 }
+
+// --- Event-scoped access (organizer / nominee) ---
+export async function getEventRole(eventId) {
+  const user = await currentUser();
+  if (!user) return null;
+
+  if (user.publicMetadata?.role === "admin") {
+    return { role: "admin", nomineeId: null };
+  }
+
+  const result = await query(
+    `SELECT role, nominee_id FROM event_access
+     WHERE event_id = $1 AND clerk_user_id = $2 AND status = 'active'`,
+    [eventId, user.id]
+  );
+
+  if (!result.rows[0]) return null;
+  return { role: result.rows[0].role, nomineeId: result.rows[0].nominee_id };
+}
+
+export async function requireEventRole(eventId, allowedRoles) {
+  const access = await getEventRole(eventId);
+  if (!access || !allowedRoles.includes(access.role)) {
+    throw new Error("Forbidden");
+  }
+  return access;
+}

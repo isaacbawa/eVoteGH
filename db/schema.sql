@@ -153,6 +153,35 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ============================================
+-- EVENT ACCESS: organizer (event-wide) & nominee (nominee-specific) invites
+-- ============================================
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS event_access (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('organizer', 'nominee')),
+  nominee_id UUID REFERENCES nominees(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  clerk_user_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'revoked')),
+  invited_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  activated_at TIMESTAMPTZ,
+  CONSTRAINT nominee_role_requires_nominee_id CHECK (
+    (role = 'nominee' AND nominee_id IS NOT NULL) OR role = 'organizer'
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_access_unique_active_email
+  ON event_access (event_id, email) WHERE status <> 'revoked';
+CREATE INDEX IF NOT EXISTS event_access_clerk_user_idx ON event_access (clerk_user_id);
+CREATE INDEX IF NOT EXISTS event_access_event_idx ON event_access (event_id);
+
+-- Fast vote counter on each nominee (avoids re-aggregating vote_transactions on every page load)
+ALTER TABLE nominees ADD COLUMN IF NOT EXISTS vote_count INTEGER NOT NULL DEFAULT 0;
+
 -- ─── Indexes ───────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_events_slug        ON events(slug);
 CREATE INDEX IF NOT EXISTS idx_events_is_public   ON events(is_public);
